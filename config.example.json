@@ -1,0 +1,47 @@
+{
+  "app": {
+    "user_name": "YOUR_NAME",
+    "days_to_crawl": 3,
+    "log_file": "data/runtime.log",
+    "history_file": "data/history_links.log",
+    "lock_file": "data/last_run.txt"
+  },
+  "llm": {
+    "api_base": "https://openrouter.ai/api/v1/chat/completions_OR_OTHER",
+    "api_key": "YOUR_API_KEY",
+    "model_name": "MODEL_NAME",
+    "max_tokens": 1024,
+    "temperature": 0.3,
+    "stream": false,
+    "think": false
+  },
+  "smtp": {
+    "host": "smtp.qq.com",
+    "port": 465,
+    "sender_email": "YOUR_SENDER_EMAIL@qq.com",
+    "auth_code": "YOUR_SMTP_AUTH_CODE",
+    "receiver_email": "YOUR_RECEIVER_EMAIL@qq.com"
+  },
+  "sites": {
+    "示例站点A_公开无需登录": {
+      "url": "https://www.example.edu.cn/tzgg/{page}.htm",
+      "domain": "https://www.example.edu.cn",
+      "list_selector": ".news-list li",
+      "title_selector": "a.title",
+      "time_selector": "span.date",
+      "content_selector": ".article-content",
+      "needs_cookie": false
+    },
+    "示例站点B_内网需要登录": {
+      "url": "https://oa.example.edu.cn/list?page={page}",
+      "domain": "https://oa.example.edu.cn",
+      "list_selector": ".table-row",
+      "title_selector": "a.link",
+      "time_selector": "td.time",
+      "dept_selector": "td.department",
+      "content_selector": ".main-text",
+      "needs_cookie": true,
+      "cookie_string": "YOUR_COOKIE_STRING_HERE" 
+    }
+  }
+}
