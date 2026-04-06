@@ -75,27 +75,62 @@ class LLMProcessor:
         return self._call_llm(prompt)
 
     def score_notices(self, summarized_list):
-        """阶段二：批量相关性打分，仅保留 4 分及以上的条目"""
+        """阶段二：批量相关性打分，返回全部条目（1-5分）"""
+        if not summarized_list:
+            return []
+
         # 构建输入文本
         input_text = "\n".join([f"- {s['title']} | 摘要: {s['summary']}" for s in summarized_list])
         
         system_prompt = f"""
-        请依据以下我的基本信息对通知进行 1-5 分的相关度打分，以判断是否需要将通知推送给我。若是我的学院发的通知，请直接打 5 分。
+        请依据以下我的基本信息对通知进行 1-5 分的相关度打分。若是我的学院发的通知，请直接打 5 分。
         {self.user_profile}
         5分：极其相关。
         3分：一般。
         1分：完全不相关。
-        严格输出 JSON 格式：{{"high_value_notices": [{{"title": "xxx", "score": 5, "reason": "xxx"}}]}}
-        仅返回 4 分及以上的条目。
+        严格输出 JSON 格式：{{"scored_notices": [{{"title": "xxx", "score": 5, "reason": "xxx"}}]}}
+        需要覆盖我提供的所有通知条目，不要遗漏。
         """
         
         raw_response = self._call_llm(input_text, system_prompt)
         
         # 尝试解析 JSON（处理可能带有的 Markdown 标签）
         try:
-            json_str = re.search(r'\{.*\}', raw_response, re.DOTALL).group()
-            return json.loads(json_str).get("high_value_notices", [])
-        except:
+            match = re.search(r'\{.*\}', raw_response, re.DOTALL)
+            if not match:
+                raise ValueError("模型未返回 JSON")
+
+            json_str = match.group()
+            data = json.loads(json_str)
+            scored = data.get("scored_notices", [])
+            if not isinstance(scored, list):
+                raise ValueError("scored_notices 不是列表")
+            normalized = []
+            for item in scored:
+                title = item.get("title", "无标题")
+                reason = item.get("reason", "暂无理由")
+                raw_score = item.get("score", 3)
+                try:
+                    score = int(float(raw_score))
+                except (TypeError, ValueError):
+                    score = 3
+                # 强制分数落在 1-5 区间
+                score = max(1, min(5, score))
+                normalized.append({
+                    "title": title,
+                    "score": score,
+                    "reason": reason
+                })
+            return normalized
+        except Exception:
             print(f"⚠️ 无法解析模型输出的 JSON: {raw_response}")
-            return []
+            # 兜底策略：即使模型异常，也保证每条通知有分数并继续推送
+            fallback_scored = []
+            for item in summarized_list:
+                fallback_scored.append({
+                    "title": item.get("title", "无标题"),
+                    "score": 3,
+                    "reason": "模型暂不可用，已按默认分数推送"
+                })
+            return fallback_scored
         
