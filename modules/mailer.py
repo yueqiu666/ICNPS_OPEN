@@ -8,26 +8,26 @@ class Mailer:
         self.smtp_config = config["smtp"]
         self.user_name = config["app"].get("user_name", "同学")
 
-    def send_notice_email(self, high_value_notices):
+    def send_notice_email(self, scored_notices):
         """
-        按时间排序并发送极简格式的通知邮件
+        按时间排序并发送带分数的通知邮件
         """
         today_str = datetime.now().strftime("%Y年%m月%d日")
         
         # 1. 排序逻辑：按发布时间由新及旧排序 (降序)
         # 注意：这里假设 notice 对象中包含 'date' 字段
         sorted_notices = sorted(
-            high_value_notices, 
+            scored_notices,
             key=lambda x: x.get('date', ''), 
             reverse=True
         )
 
         # 2. 构建邮件正文
         if not sorted_notices:
-            # 无高价值通知时的内容
-            content_body = f"<p style='color: #666;'>🔍 今日暂无个性化通知，明天再来看看吧！</p>"
+            # 无通知时的内容
+            content_body = f"<p style='color: #666;'>🔍 今日暂无新通知，明天再来看看吧！</p>"
         else:
-            # 有高价值通知时的内容
+            # 有通知时的内容
             list_items = ""
             for i, notice in enumerate(sorted_notices, 1):
                 date = notice.get('date', '未知日期')
@@ -35,13 +35,16 @@ class Mailer:
                 link = notice.get('link', '#')
                 summary = notice.get('summary', '暂无摘要内容')
                 reason = notice.get('reason', '暂无理由')
+                score = notice.get('score', '未评分')
                 
                 # 按照要求格式：1. （发布时间）通知标题（点击即可跳转）：摘要。
                 list_items += f"""
                 <li style="margin-bottom: 15px;">
                     <strong>({date})</strong> 
                     <a href="{link}" style="color: #2E5C87; text-decoration: none;">{title} </a>：
-                    <span style="color: #333;">{summary}{reason}</span>
+                    <span style="color: #333;">{summary}</span><br>
+                    <span style="display: inline-block; margin-top: 4px; color: #1d5f2d;">相关度评分：{score}/5</span><br>
+                    <span style="color: #666;">评分理由：{reason}</span>
                 </li>
                 """
             content_body = f"<ol style='padding-left: 20px;'>{list_items}</ol>"
@@ -53,7 +56,7 @@ class Mailer:
             <h2 style="border-bottom: 2px solid #2E5C87; padding-bottom: 10px; color: #2E5C87;">
                 🎓 ICNPS 个性化校园通知推送 - {today_str}
             </h2>
-            <p>你好，{self.user_name}！以下是今日为你选取的个性化推送：</p>
+            <p>你好，{self.user_name}！以下是今日新通知及相关度评分：</p>
             {content_body}
             <hr style="border: none; border-top: 1px solid #eee; margin-top: 30px;">
             <p style="color: #999; font-size: 12px;">
@@ -79,6 +82,6 @@ class Mailer:
                     [self.smtp_config["receiver_email"]], 
                     message.as_string()
                 )
-            print(f"📧 邮件发送成功！今日包含 {len(sorted_notices)} 条高分推送。")
+            print(f"📧 邮件发送成功！今日包含 {len(sorted_notices)} 条已评分通知。")
         except Exception as e:
             print(f"❌ 邮件发送失败: {e}")
