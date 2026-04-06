@@ -2,7 +2,6 @@ import json
 import os
 import sys
 import time
-import random
 from datetime import datetime
 
 # 确保可以导入 modules 和 utils
@@ -24,25 +23,31 @@ def main():
     today_str = datetime.now().strftime("%Y-%m-%d")
 
     # A. 开机延迟：等待 10 分钟 (600秒)
-    delay_seconds = 600
+    delay_seconds = 0
     print(f"⏳ 自动化任务启动：系统将在 {delay_seconds // 60} 分钟后开始运转...")
     time.sleep(delay_seconds)
 
     # B. 每日运行锁：检查今天是否已经运行过
     if os.path.exists(lock_file):
-        with open(lock_file, "r") as f:
+        # 兼容 UTF-8 BOM，避免 Windows 默认编码导致读取失败
+        with open(lock_file, "r", encoding="utf-8-sig") as f:
             if f.read().strip() == today_str:
                 print(f"📅 今日 ({today_str}) 已执行过推送任务，系统退出。")
                 return
 
     # 3. 初始化核心组件
     history_file = config["app"]["history_file"]
+    min_relevance_score = config.get("app", {}).get("min_relevance_score", 3)
+    crawl_mode = config.get("app", {}).get("crawl_mode", "compare")
     history_set = load_history(history_file)
     processor = LLMProcessor(config)
     mailer = Mailer(config)
 
     # 4. 执行爬虫模块
-    print(f"🕸️ 正在巡查校园网站 (目标: 近 {config['app']['days_to_crawl']} 天通知)...")
+    if crawl_mode == "time_window":
+        print(f"🕸️ 正在巡查校园网站（时间模式：近 {config['app']['days_to_crawl']} 天）...")
+    else:
+        print("🕸️ 正在巡查校园网站（对比模式：与上次抓取结果做差集）...")
     all_raw_notices = []
     for site_name, site_config in config["sites"].items():
         # 直接传入 test=False，让爬虫保持优雅的随机延迟防封
@@ -52,12 +57,13 @@ def main():
             config["app"]["days_to_crawl"], 
             history_set, 
             history_file, 
-            test=False
+            test=False,
+            crawl_mode=crawl_mode
         )
         all_raw_notices.extend(results)
 
     # 5. 大模型智能分析 (摘要 + 打分)
-    high_value_results = []
+    scored_results = []
     if all_raw_notices:
         print(f"🧠 发现 {len(all_raw_notices)} 条新动态，正在启动模型进行智能分析...")
         summarized_list = []
@@ -67,15 +73,17 @@ def main():
             
             # 阶段一：生成摘要 
             summary = processor.summarize_article(full_title, n["content"])
-            if summary:
-                summarized_list.append({
-                    "title": full_title, 
-                    "summary": summary,
-                    "link": n["link"],
-                    "date": n["date"]
-                })
+            if not summary:
+                summary = "摘要生成失败，已保留原通知供你查看。"
 
-        # 阶段二：根据画像批量打分并过滤
+            summarized_list.append({
+                "title": full_title,
+                "summary": summary,
+                "link": n["link"],
+                "date": n["date"]
+            })
+
+        # 阶段二：根据画像批量打分
         scored_notices = processor.score_notices(summarized_list)
         
         # 将摘要和日期等信息补回给打分结果
@@ -93,17 +101,25 @@ def main():
                 })
             else:
                 print(f"⚠️ 警告：大模型返回的标题 '{clean_score_title}' 无法与原列表匹配，可能会丢失日期和链接。")
-        high_value_results = scored_notices
+        # 仅推送“相关”的通知：默认 3-5 分，可在 config.json 的 app.min_relevance_score 调整
+        scored_results = [
+            item for item in scored_notices
+            if isinstance(item.get("score"), (int, float)) and item.get("score") >= min_relevance_score
+        ]
+        print(
+            f"✅ 智能筛选完成：共打分 {len(scored_notices)} 条，"
+            f"相关通知 {len(scored_results)} 条（阈值 >= {min_relevance_score} 分）。"
+        )
     else:
         print("📭 暂未发现新的校内通知。")
 
     # 6. 邮件推送
     print("📧 正在生成并发送通知邮件...")
-    mailer.send_notice_email(high_value_results)
+    mailer.send_notice_email(scored_results)
 
     # 7. 更新运行锁
     os.makedirs(os.path.dirname(lock_file), exist_ok=True)
-    with open(lock_file, "w") as f:
+    with open(lock_file, "w", encoding="utf-8") as f:
         f.write(today_str)
     print(f"✅ 任务完成，已更新运行锁：{today_str}")
 
